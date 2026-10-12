@@ -1,0 +1,128 @@
+# SPEAKCITY AI — Windows desktop
+
+A Windows 11 app for practising **spoken English** in eight everyday places. Lucy asks, you answer out loud, and the app keeps up with whatever you actually said. Recording and voices happen on your own PC; only the words of the conversation go to the AI provider you configure.
+
+## The short version
+
+| Question | Answer |
+| --- | --- |
+| What is this? | Desktop English conversation trainer: Airport, Hotel, Café, Shop, Hospital, City Map, School, Job Interview |
+| Can I download it yet? | Not from a release page, no. See [Status](#status) and [Getting the installer](#getting-the-installer) |
+| Do learners need Python? | No. Python, CMake and .NET are only for the machine that *builds* the installer |
+| What does it cost? | Free for learners. You bring your own AI API key |
+| Interface languages | English, Kazakh, Russian — speaking practice is always English |
+| What's on your PC afterwards | Installer in `%LOCALAPPDATA%\Programs\SPEAKCITY AI`; settings, vocabulary and the browser profile in `%LOCALAPPDATA%\SpeakCity` |
+| The real specification | The original research paper. This repo rebuilds it as a native Windows app |
+
+## Where everything lives
+
+```
+speakcity/
+├── src/SpeakCity/          the Windows app itself (C#, WPF; native window by default)
+│   ├── NativeMainWindow.cs     the default window: scenarios, chat, mic toggle, voice (no browser)
+│   ├── WavRecorder.cs          microphone capture through Windows MCI, 16 kHz mono PCM WAV
+│   ├── NativeSmoke.cs          --ui-smoke: real router + voice, then opens the window and renders PNGs
+│   ├── NativeAssets.cs         native pictures: JPEG twins of ui/assets compiled into the DLL (WPF has no WebP)
+│   ├── SpeechChunks.cs         splits Lucy's line so her first sentence plays while the rest is synthesised
+│   ├── MainWindow.cs           the optional WebView2 window (SpeakCity.exe --webview) and --diagnose
+│   ├── AppRouter.cs            the /api/* routes the UI talks to (in-memory sessions)
+│   ├── ApiClient.cs            talks to your configured AI provider
+│   ├── ApiConfig.cs            validates + encrypts that provider setting (per Windows user)
+│   ├── ApiSettingsWindow.cs    the native "Configure AI" dialog (never the browser)
+│   ├── AppStartup.cs           bounded browser-component start-up, startup.json trace, --diagnose
+│   ├── SpeechWorkerClient.cs   starts the bundled speech worker over stdin/stdout pipes
+│   └── SelfTests.cs            the packaged --self-test that CI runs before packaging
+├── ui/                     the screens: HTML/CSS/JS, no framework, no CDN
+│   ├── app.js                  scenes, conversation, recording, feedback, vocabulary
+│   ├── i18n.js                 every EN/KK/RU string
+│   ├── recorder.js + -worklet  microphone capture, hands-free segmentation, WAV export
+│   ├── scenario-catalog.js     display-only fallback copy of the dataset (keep aligned)
+│   └── tests/                  dependency-free Node tests for the above
+├── content/scenarios.json  the eight scenarios: roles, missions, hints, vocabulary seeds
+├── speech/                 the bundled offline speech engine (Python, frozen into an .exe)
+│   ├── worker.py                 Kokoro TTS + faster-whisper STT, JSON-lines protocol
+│   ├── download_assets.py        SHA-pinned model downloader (offline afterwards)
+│   ├── requirements.txt          the exact pinned build environment
+│   └── speech_worker.spec        PyInstaller recipe: ship the whole folder, not just the .exe
+├── build/                  how the installer is made
+│   ├── windows.ps1               the whole pipeline, stage by stage
+│   ├── native_espeak.ps1         controlled eSpeak NG build from pinned source
+│   ├── collect_notices.py        third-party notices + corresponding source gate
+│   └── installer.iss             Inno Setup script (per-user, no admin rights)
+├── assets-source/          illustrations + icon as base64, decoded by the build (see manifest)
+├── tests/                  speech worker + notice-collection test suites (standard library only)
+└── docs/                   the two things worth reading before shipping
+```
+
+## I want to know X — where do I read it?
+
+| Question | Read this first | And then |
+| --- | --- | --- |
+| What the finished app should feel like | [docs/README.md](docs/README.md) | [ui/README.md](ui/README.md) |
+| The exact `/api/*` request and response shapes | [ui/README.md](ui/README.md) | `src/SpeakCity/AppRouter.cs` |
+| The speech worker protocol, limits, error codes | [speech/README.md](speech/README.md) | `speech/worker.py` |
+| Licences, GPL obligations, the source companion | [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) | `build/collect_notices.py` |
+| Why the last build passed or failed | [Actions runs](https://github.com/AmireNuradil/speakcity/actions) | artifact `speakcity-reports-<run id>` → `status/desktop-build.json` (stage + logs tail) |
+| What the packaged self-test actually proved | artifact → `status/windows-self-test.json` | `src/SpeakCity/SelfTests.cs` |
+| Which model files are downloaded, and their hashes | `speech/assets-manifest.json` | `speech/download_assets.py` |
+| Where a user's API key is stored | `src/SpeakCity/ApiConfig.cs` | `%LOCALAPPDATA%\SpeakCity\api-settings.bin`, DPAPI, current Windows user |
+| The window is stuck on "Opening SPEAKCITY..." | `src/SpeakCity/AppStartup.cs` | run `SpeakCity.exe --diagnose check.json` and read `docs/README.md` |
+
+## Status
+
+The app is **built but not yet released**. Concretely:
+
+- ✅ Everything up to and including the packaged self-test passes on the Windows build runner: the C# app compiles, eSpeak NG is built from pinned source, the speech worker freezes, Kokoro speaks, Whisper transcribes, and all eight scenarios pass the conversation/feedback/vocabulary checks.
+- ✅ The blocker that stopped packaging for a while (a false "licence file missing" report for `setuptools`) is fixed in `build/collect_notices.py`, with `tests/notice_collection_test.py` pinning both the false positive and the fail-closed case.
+- ⚠️ No installer has been published from a fully green run, so the [Releases page](https://github.com/AmireNuradil/speakcity/releases) is empty. Three earlier `desktop-preview-0.2.0-*-incomplete` pre-releases (an unsigned installer that failed verification, published by the build's failure path despite the public-repository rule) were deleted on 2026-09-28 with their tags; that path is now gated too (`docs/CODE_AUDIT.md` F-02). An empty page means "not built yet" - not "lost".
+- ⏳ Still genuinely unproven, and nobody should claim otherwise: a real microphone on a real Windows 11 machine, and installing on a clean PC. The build runs on Windows *Server*, which has no microphone; the packaged `--ui-smoke` check drives the native path headlessly (real router, real bundled Kokoro voice, scripted AI completion), and it is the optional WebView2 window that reports `skipped (non-interactive-session)` on an agent with no desktop to paint on.
+- ✅ A live AI provider call is verified on a real Windows 11 PC through the app's own `ApiClient` and the saved DPAPI configuration: the connection test, a conversation turn and the end-of-run corrections all returned usable JSON. It stays a manual check rather than a build gate because it needs owner-supplied credentials.
+- ✅ The default window is native WPF and needs no browser component; the WebView2 interface is still available with `SpeakCity.exe --webview` for comparison. A start that cannot finish no longer hangs: the WebView2 path bounds its start-up, retries a locked profile once in a temporary folder, and shows what to do instead of sitting on "Opening SPEAKCITY...". `%LOCALAPPDATA%\SpeakCity\startup.json` and `SpeakCity.exe --diagnose <file>` exist so "it does not open" can be answered with facts.
+
+## Getting the installer
+
+### Route A — let GitHub build it (the normal way)
+
+The workflow runs on every push to `main` (`.github/workflows/windows-desktop.yml`). One run is roughly 10–20 minutes and, at the end, attaches `SPEAKCITY-AI-Setup-x64.exe`, the source archive and the third-party source archive to a private release. Publishing requires the repository to actually be private: on a public repository the run still builds and verifies everything, then leaves the installer under `out/release` rather than publishing an unsigned installer together with its temporary signed download links.
+
+```bash
+gh run list --repo AmireNuradil/speakcity --workflow windows-desktop.yml --limit 5  # watch it
+gh release download --repo AmireNuradil/speakcity --pattern "*.exe"                 # fetch it
+```
+
+If a late *verification* step fails after the installer was already compiled, that installer is still published as a prerelease titled `…AUTOMATED VERIFICATION INCOMPLETE`, together with the build reports - so a near miss never throws a usable build away.
+
+### Route B — build it yourself on a Windows 11 PC
+
+```powershell
+git clone https://github.com/AmireNuradil/speakcity.git
+cd speakcity
+.\build\windows.ps1
+```
+
+Prerequisites the script discovers on its own: Windows x64, Python 3.11 64-bit (via SPEAKCITY_PYTHON, the py -3.11 launcher, the registry, or PATH), Visual Studio C++ tools with CMake (for the eSpeak build) and .NET 10 x64 (via SPEAKCITY_DOTNET, PATH, DOTNET_ROOT, or an automatic install into the portable scratch directory RUNNER_TEMP -> TEMP -> out/tmp). It downloads about 500 MB of models. Your file ends up at `out\release\SPEAKCITY-AI-Setup-x64.exe` - on your own machine the final GitHub-publishing step is recognised as unavailable and skipped, so the run finishes cleanly.
+
+Either way: the build is **unsigned**, so SmartScreen will warn the first time - and the first launch asks for an API base URL, model ID and key in *Configure AI*. There is no built-in key and no scripted fallback conversation.
+
+### Choosing a model that works
+
+The conversation and the end-of-run corrections both need the model to answer with a JSON object (`{"reply": "..."}`, and `{"corrections": [...]}` for feedback). A model that answers with plain prose fails with *"The provider returned malformed JSON"* - nothing else in the app is wrong at that point.
+
+Verified against OpenRouter with a free-tier key, using the app's exact request shape: `nex-agi/nex-n2.5-pro:free` answered 3/3 turns and 8/8 feedback replies. Rejected in the same probe: `openrouter/free` and `openrouter/auto` (auto-routers - one request was routed to a content-safety classifier that answered `User Safety: safe`), `nvidia/nemotron-3-super-120b-a12b:free` (0/3, answered `{}`), `google/gemma-4-31b-it:free` and `google/gemma-4-26b-a4b-it:free` (HTTP 429), `liquid/lfm-2.5-2.6b:free` (leaks `<|tool_call_start|>` syntax into the reply), and `dots-studio/dots-3-note-preview:free` (1/3, empty content once its reasoning budget ran out).
+
+## Checks you can run without building anything
+
+```bash
+python -B tests/speech_worker_test.py       # speech worker protocol, limits, downloader guards
+python -B tests/notice_collection_test.py   # the licence gate: no false positives, no false passes
+node --test ui/tests/ui.test.cjs ui/tests/recorder.test.cjs   # screens, API contract, all 8 scenes
+```
+
+## Ground rules
+
+- **No credentials in the repo.** Ever. Not in tests, not in build reports, not "temporarily".
+- **Learner data stays local.** Audio is transcribed on the PC; only conversation text reaches the configured provider. Provider eligibility and child-data consent are the owner's responsibility.
+- **Fail-closed packaging.** `build/collect_notices.py` returning non-zero is a stop signal, not a warning to switch off. There is no `--force`, and the release is not "compliant" because a build succeeded.
+- **Build evidence lives in each Actions run** (job summary and the `speakcity-reports-<run id>` artifact), never in a commit.
+- **Not medical, not navigation.** Hospital is English practice; City Map uses the fictional 3×3 grid shown in the app.
+- **Model weights, native binaries and build output are never committed** - `speech/.gitignore` keeps them out of the repo.

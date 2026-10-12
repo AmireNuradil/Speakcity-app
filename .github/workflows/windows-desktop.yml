@@ -1,0 +1,83 @@
+name: SPEAKCITY Windows desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+  # Pull requests get the same Windows build, so a change is proven before it reaches main.
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+
+permissions:
+  contents: write
+  actions: read
+
+# A newer push to the same pull request supersedes an older run.
+concurrency:
+  group: windows-desktop-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build and test the desktop app when its source is ready
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path 'build/windows.ps1') {
+            & ./build/windows.ps1
+            if ($LASTEXITCODE -ne 0) { throw "Desktop build returned $LASTEXITCODE" }
+          } else {
+            Write-Output 'Windows runner is available. Desktop source has not been uploaded yet; no installer has been built.'
+            dotnet --list-sdks
+            python --version
+          }
+
+      - name: Record build status
+        if: always()
+        shell: pwsh
+        env:
+          BUILD_RESULT: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceReady = Test-Path 'build/windows.ps1'
+          $report = @{
+            result = $env:BUILD_RESULT
+            phase = $(if ($sourceReady) { 'desktop-build' } else { 'windows-preflight-only' })
+            os = (Get-CimInstance Win32_OperatingSystem).Caption
+            architecture = $env:PROCESSOR_ARCHITECTURE
+            run_id = $env:GITHUB_RUN_ID
+            commit = $env:GITHUB_SHA
+            note = 'Windows build evidence, not a physical Windows 11 microphone test.'
+          } | ConvertTo-Json -Depth 4
+          # Kept as a run artifact and in the job summary instead of a commit to the repository.
+          New-Item -ItemType Directory -Force out/reports/status | Out-Null
+          Set-Content -Encoding utf8 out/reports/status/windows-status.json $report
+          "## Windows build: $env:BUILD_RESULT`n``````json`n$report`n``````" | Add-Content $env:GITHUB_STEP_SUMMARY
+          Write-Output $report
+
+      - name: Keep the UI screenshots and test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: speakcity-reports-${{ github.run_id }}
+          path: |
+            out/reports/*.png
+            out/reports/*.json
+            out/reports/status/*.json
+          if-no-files-found: ignore
+          retention-days: 14

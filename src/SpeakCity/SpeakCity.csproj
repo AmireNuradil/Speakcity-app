@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AssemblyName>SpeakCity</AssemblyName>
+    <RootNamespace>SpeakCity</RootNamespace>
+    <Version>0.2.0</Version>
+    <ApplicationIcon>App.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+    <Content Include="../../ui/**/*" Exclude="../../ui/tests/**;../../ui/README.md" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../content/scenarios.json" Link="content/scenarios.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- WPF has no WebP decoder: JPEG twins of ui/assets, compiled into the assembly
+         (build/native_images.py). Listed one by one so a missing file breaks the build. -->
+    <None Remove="Assets/**" />
+    <Resource Include="Assets/airport.jpg" />
+    <Resource Include="Assets/cafe.jpg" />
+    <Resource Include="Assets/city.jpg" />
+    <Resource Include="Assets/lucy.jpg" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(SPEAKCITY_STAGE_SPEECH)' != 'false'">
+    <!-- The frozen worker and its models come from the canonical build outputs
+         (out/worker from PyInstaller, out/models verified against
+         speech/assets-manifest.json). Staging them beside the app makes
+         dotnet run/publish a complete install, so the native window's
+         microphone and voice work in development without an installer. -->
+    <Content Include="../../out/worker/speakcity-speech-worker/speakcity-speech-worker.exe" Link="speech/speakcity-speech-worker.exe" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="../../out/worker/speakcity-speech-worker/_internal/**/*" Link="speech/_internal/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="../../out/models/**/*" Link="speech/models/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+</Project>
